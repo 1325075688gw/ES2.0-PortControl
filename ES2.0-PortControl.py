@@ -5,6 +5,8 @@ import json
 import serial
 import math
 import binascii
+import _thread
+
 
 from _ctypes import pointer
 from ctypes import c_float, POINTER, c_int, cast
@@ -13,7 +15,7 @@ from collections import OrderedDict
 HEADER_SIZE = 52
 MAGIC_WORD = "0201040306050807"
 SINGLE_POINT_DATA_SIZE = 20
-SINGLE_TARGET_LIST_SIZE = 216
+SINGLE_TARGET_LIST_SIZE = 40
 SINGLE_TARGET_INDEX_SIZE = 1
 
 
@@ -43,7 +45,7 @@ class Point:
 
 class ReceivePointData:
 
-    def __init__(self, data_port="COM3", user_port="COM4"):
+    def __init__(self, data_port="COM4", user_port="COM3"):
         """
         初始化数据串口和用户串口
         :param data_port:
@@ -58,7 +60,7 @@ class ReceivePointData:
         parity=校验位
         '''
         self.data_port = serial.Serial(port=data_port, baudrate=921600, bytesize=8, stopbits=1, parity="N")
-        self.user_port = serial.Serial(port=user_port, baudrate=921600, bytesize=8, stopbits=1, parity="N")
+        self.user_port = serial.Serial(port=user_port, baudrate=115200, bytesize=8, stopbits=1, parity="N")
 
     def open_port(self):
         """
@@ -67,17 +69,17 @@ class ReceivePointData:
         :param user_port:
         :return:
         """
-        try:
-            self.data_port.open()
-            print("数据串口打开成功")
-        except Exception as e:
-            print("串口打开失败\n %s", e)
+        self.data_port.open()
+        if self.data_port.isOpen():
+            print("数据串口打开成功！")
+        else:
+            print("数据串口打开失败！")
 
-        try:
-            self.user_port.open()
-            print("用户串口打开成功")
-        except Exception as e:
-            print("用户串口打开失败\n %s", e)
+        self.user_port.open()
+        if self.user_port.isOpen():
+            print("用户串口打开成功！")
+        else:
+            print("用户串口打开失败！")
 
     def send_config(self):
         """
@@ -100,7 +102,7 @@ class ReceivePointData:
     def receive_data(self):
         """
         接收串口数据
-        :return: 
+        :return:
         """
         point_cloud_list = []
         count = 0
@@ -111,41 +113,52 @@ class ReceivePointData:
                 try:
                     if self.data_port.in_waiting:
                         # 读取串口数据到临时缓存
-                        buffer = str(self.data_port.read(self.data_port.in_waiting))[2:-1]
+                        buffer = str(binascii.b2a_hex(self.data_port.read(self.data_port.in_waiting)))[2:-1]
                         # 将临时缓存区数据添加到data_buffer
-                        self.data_buffer.extend(buffer)
+                        valid_data = []
+                        for i in range(len(buffer)):
+                            valid_data.append((buffer[i]))
+                        # print(valid_data)
+                        self.data_buffer.extend(valid_data)
                         # 数据处理
                         point_cloud = self.process_data()
-                        point_cloud_list.extend(point_cloud)
-                        count += 1
-                        if point_cloud:
-                            point_cloud_json.update({count: point_cloud})
+                        if point_cloud ==None:
+                            print("fff")
+                        else:
+                            point_cloud_list.extend(point_cloud)
+                            count += 1
+                            print(point_cloud)
+                            if point_cloud:
+                                point_cloud_json.update({count: point_cloud})
 
                 except Exception as e:
                     print(e)
-                finally:
-                    with open("PointCloud.json", "w") as file:
-                        json.dump(point_cloud_json, file)
+                # finally:
+                #     with open("PointCloud.json", "w") as file:
+                #         json.dump(point_cloud_json, file)
             time.sleep(0.01)
 
     def process_data(self):
         """
         缓冲区达到一定数量之后进行数据处理
-        :return: 
+        :return:
         """
 
         point_cloud_list = []
         while len(self.data_buffer) >= HEADER_SIZE:
             # 从数据缓冲区获取一帧数据
             frame_data = self.get_frame()
+            num_tlv = 1
             if frame_data is None:
                 return
-            if len(frame_data) >= HEADER_SIZE * 2:
-                num_tlv = int(self.convert_string("".join(frame_data[48 * 2: 48 * 2 + 4])), 16)
-                total_packet_len = int(self.convert_string("".join(frame_data[20 * 2: 20 * 2 + 8])), 16)
+            if len(frame_data) < HEADER_SIZE * 2:
                 print("缓冲区正在接收数据，请稍后...")
                 continue
-
+            else:
+                num_tlv = int(self.convert_string("".join(frame_data[48 * 2: 48 * 2 + 4])), 16)
+                total_packet_len = int(self.convert_string("".join(frame_data[20 * 2: 20 * 2 + 8])), 16)
+            if len(frame_data) < total_packet_len * 2:
+                continue
 
             # 每一帧我们都需要先将头部取出
             # 解析TLV头部
@@ -153,16 +166,19 @@ class ReceivePointData:
             tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
             index += 8
             point_cloud_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
-            point_num = point_cloud_len % SINGLE_POINT_DATA_SIZE
-            if point_num != 0:
+
+            point_cloud_num_mod = (point_cloud_len-8) % SINGLE_POINT_DATA_SIZE
+            if point_cloud_num_mod != 0:
                 print("point_cloud 缓存区正在接收数据，请稍后...")
+
+            point_cloud_num_ys = int((point_cloud_len - 8) / SINGLE_POINT_DATA_SIZE)
             if tlv_type == 6:
-                print("point_num: %s", point_num)
+                print("point_num: %s" % point_cloud_num_ys)
             else:
-                print("TLV_type:  %s", tlv_type)
-            for i in range(point_num):
+                print("TLV_type:  %s" % tlv_type)
+            for i in range(point_cloud_num_ys):
                 index += 8
-                range = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                range2 = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
 
                 index += 8
                 azimuth = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
@@ -176,28 +192,29 @@ class ReceivePointData:
                 index += 8
                 snr = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
 
-                x = range * math.cos(elev) * math.sin(azimuth)
-                y = range * math.cos(elev) * math.cos(azimuth)
-                z = range * math.sin(azimuth)
+                x = range2 * math.cos(elev) * math.sin(azimuth)
+                y = range2 * math.cos(elev) * math.cos(azimuth)
+                z = range2 * math.sin(azimuth)
 
                 point = Point(i + 1, x, y, z)
                 point_cloud_list.append(point)
-
-            # 每一帧后面的TLV，就不需要再计算HEADER了
-            # 解析TLV头部
-
             if num_tlv == 3:
+                print("fffffffffff")
+                # 每一帧后面的TLV，就不需要再计算HEADER了
+                # 解析TLV头部
                 index += 8
-                tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+                # point_cloud_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+                tlv_type = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
                 index += 8
                 target_list_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
-                target_list_num = target_list_len % SINGLE_TARGET_LIST_SIZE
-                if target_list_num != 0:
+                target_list_num_mod = (target_list_len-8) % SINGLE_TARGET_LIST_SIZE
+                if target_list_num_mod != 0:
                     print("target_list 缓存区正在接收数据，请稍后...")
-                print("TLV: %s", tlv_type)
-                print("传递的聚类数：%s", target_list_num)
+                target_list_num_ys = int((target_list_len-8) / SINGLE_TARGET_LIST_SIZE)
+                print("TLV: {0}".format(tlv_type))
+                print("传递的聚类数：{0}".format(target_list_num_ys))
                 target_list = []
-                for i in range(target_list_num):
+                for i in range(target_list_num_ys):
                     index += 8
                     tid = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
                     index += 8
@@ -218,12 +235,13 @@ class ReceivePointData:
                     acc_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                     index += 8
                     acc_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                    index += 8
-                    ec = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 32])))
-                    index += 32
-                    g = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                    target = Target(tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, ec, g, 0)
+                    # index += 8
+                    # ec = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 32])))
+                    # index += 32
+                    # g = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    target = Target(tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, 0, 0, 0)
                     target_list.append(target)
+                    print(target_list)
 
                 # 每一帧后面的TLV，就不需要再计算HEADER了
                 # 解析TLV头部
@@ -231,15 +249,22 @@ class ReceivePointData:
                 tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
                 index += 8
                 target_index_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
-                target_index_num = target_index_len % SINGLE_TARGET_INDEX_SIZE
-                if target_index_num != 0:
+                target_index_num_mod = (target_index_len-8) % SINGLE_TARGET_INDEX_SIZE
+                if target_index_num_mod != 0:
                     print("target_index 缓存区正在接收数据，请稍后...")
-                print("TLV: %s", tlv_type)
-                for i in range(target_index_num):
-                    index += 8
-                    index_no = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
-                    target_list[i].index_no = index_no
-        
+
+
+                print("TLV_TYPE: {0}".format(tlv_type))
+
+                target_index_num_ys = int((target_index_len-8) / SINGLE_TARGET_INDEX_SIZE)
+                index += 8
+                print("target_index_num_ys: {0}".format(target_index_num_ys))
+                for i in range(target_index_num_ys):
+                    index_no = int(self.convert_string("".join(frame_data[index:index + 2])), 16)
+                    index += 2
+                    # target_list[i].index_no = index_no
+                    print("索引 {0}".format(index_no))
+
         return point_cloud_list
 
 
@@ -248,30 +273,32 @@ class ReceivePointData:
         从数据缓冲区中获取一帧数据
         :return:
         """
-        # 查找MAGIC_WORD
-        start_index = self.data_buffer.index(MAGIC_WORD)
+        data_str = "".join(self.data_buffer)
+        # print("data_str:" + data_str)
+        start_index = data_str.index("0201040306050807")
         if start_index == -1:
             return None
-        # 去除MAGIC_WORD
-        self.data_buffer = self.data_buffer[start_index+len(MAGIC_WORD):]
+        start_index = int(start_index)
+        del self.data_buffer[0:start_index]
         start_index = 0
         if len(self.data_buffer) < HEADER_SIZE:
             return None
-        # 获取数据长度
-        packet_len = int(self.convert_string("".join(self.data_buffer[start_index + 40: start_index + 48])), 16)
-        if packet_len > 60000:
-            print("数据报大小超过60000，丢弃该帧")
-            self.data_buffer = self.data_buffer[24:]
-            return None
-        # 数据实际长度不足期望长度，继续接受数据
+        packet_len = int(self.convert_string("".join(self.data_buffer[start_index + 40:start_index + 48])), 16)
+        print("数据包大小:" + str(packet_len))
+        # if packet_len > 30000:
+        #     print("数据包大小超过30000，丢弃帧")
+        #     del self.data_buffer[0:24]
+        #     return None
         if len(self.data_buffer) < packet_len:
             return None
-        # 数据实际长度满足期望长度，读取数据并返回
         ret = copy.deepcopy(self.data_buffer[start_index: start_index + packet_len * 2])
         del self.data_buffer[start_index: start_index + packet_len * 2]
+
         return ret
 
     def convert_string(self, string):
+        if string == "":
+            return "0"
         try:
             # str1 = string[2:4] + string[0:2] + string[6:8] + string[4:6]
             str1 = string[6:8] + string[4:6] + string[2:4] + string[0:2]
@@ -290,4 +317,4 @@ if __name__ == "__main__":
     pointData = ReceivePointData("COM4", "COM3")
     pointData.open_port()
     pointData.send_config()
-    pointData.receive_data()
+    _thread.start_new_thread(pointData.receive_data(), ())
