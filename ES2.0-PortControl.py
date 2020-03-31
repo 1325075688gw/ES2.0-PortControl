@@ -2,12 +2,13 @@ import os
 import copy
 import time
 import json
-from _ctypes import pointer
-from ctypes import c_float, POINTER, c_int, cast
-
 import serial
 import math
 import binascii
+
+from _ctypes import pointer
+from ctypes import c_float, POINTER, c_int, cast
+from collections import OrderedDict
 
 HEADER_SIZE = 52
 MAGIC_WORD = "0201040306050807"
@@ -91,8 +92,8 @@ class ReceivePointData:
             return
         for text in file.readlines():
             print("send config:" + text)
-            user_port.write(text.encode('utf-8'))
-            user_port.write('\n'.encode('utf-8'))
+            self.user_port.write(text.encode('utf-8'))
+            self.user_port.write('\n'.encode('utf-8'))
             time.sleep(0.2)
         file.close()
 
@@ -117,14 +118,14 @@ class ReceivePointData:
                         point_cloud = self.process_data()
                         point_cloud_list.extend(point_cloud)
                         count += 1
-                        if point_data:
-                            point_cloud_json.update({count: point_data})
+                        if point_cloud:
+                            point_cloud_json.update({count: point_cloud})
 
                 except Exception as e:
                     print(e)
                 finally:
                     with open("PointCloud.json", "w") as file:
-                        json.dump(point_cloud_json, f)
+                        json.dump(point_cloud_json, file)
             time.sleep(0.01)
 
     def process_data(self):
@@ -159,19 +160,19 @@ class ReceivePointData:
                 print("TLV_type:  %s", tlv_type)
             for i in range(point_num):
                 index += 8
-                range = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                range = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
 
                 index += 8
-                azimuth = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                azimuth = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
 
                 index += 8
-                elev = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                elev = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
 
                 index += 8
-                doppler = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                doppler = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
 
                 index += 8
-                snr = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                snr = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
 
                 x = range * math.cos(elev) * math.sin(azimuth)
                 y = range * math.cos(elev) * math.cos(azimuth)
@@ -193,31 +194,31 @@ class ReceivePointData:
             print("TLV: %s", tlv_type)
             print("传递的聚类数：%s", target_list_num)
             target_list = []
-            for i in range(target_num):
+            for i in range(target_list_num):
                 index += 8
-                tid = int(convert_string("".join(frame_data[index:index + 8])), 16)
+                tid = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
                 index += 8
-                pos_x = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                pos_x = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                pos_y = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                pos_y = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                pos_z = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                pos_z = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                vel_x = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                vel_x = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                vel_y = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                vel_y = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                vel_z = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                vel_z = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                acc_x = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                acc_x = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                acc_y = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                acc_y = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                acc_z = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                acc_z = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                ec = byte_to_float(convert_string("".join(frame_data[index:index + 32])))
+                ec = byte_to_float(self.convert_string("".join(frame_data[index:index + 32])))
                 index += 32
-                g = byte_to_float(convert_string("".join(frame_data[index:index + 8])))
+                g = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 target = Target(tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, ec, g, 0)
                 target_list.append(target)
 
@@ -234,7 +235,7 @@ class ReceivePointData:
             print("TLV: %s", tlv_type)
             for i in range(target_index_num):
                 index += 8
-                index_no = int(convert_string("".join(frame_data[index:index + 8])), 16)
+                index_no = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
                 target_list[i].index_no = index_no
         
         return point_cloud_list
@@ -284,7 +285,7 @@ class ReceivePointData:
 
 
 if __name__ == "__main__":
-    pointData = ReceivePointData()
-    pointData.open_port("COM4", "COM3")
+    pointData = ReceivePointData("COM4", "COM3")
+    pointData.open_port()
     pointData.send_config("")
     pointData.receive_data()
