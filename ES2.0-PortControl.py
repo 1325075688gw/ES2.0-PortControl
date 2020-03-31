@@ -79,7 +79,7 @@ class ReceivePointData:
         except Exception as e:
             print("用户串口打开失败\n %s", e)
 
-    def send_config(self, path):
+    def send_config(self):
         """
         初始化雷达板子
         :param path:
@@ -198,27 +198,27 @@ class ReceivePointData:
                 index += 8
                 tid = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
                 index += 8
-                pos_x = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                pos_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                pos_y = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                pos_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                pos_z = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                pos_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                vel_x = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                vel_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                vel_y = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                vel_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                vel_z = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                vel_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                acc_x = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                acc_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                acc_y = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                acc_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                acc_z = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                acc_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 index += 8
-                ec = byte_to_float(self.convert_string("".join(frame_data[index:index + 32])))
+                ec = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 32])))
                 index += 32
-                g = byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                g = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                 target = Target(tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, ec, g, 0)
                 target_list.append(target)
 
@@ -287,5 +287,5 @@ class ReceivePointData:
 if __name__ == "__main__":
     pointData = ReceivePointData("COM4", "COM3")
     pointData.open_port()
-    pointData.send_config("")
+    pointData.send_config()
     pointData.receive_data()
