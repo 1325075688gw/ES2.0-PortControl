@@ -140,9 +140,12 @@ class ReceivePointData:
             frame_data = self.get_frame()
             if frame_data is None:
                 return
-            if len(frame_data) == HEADER_SIZE * 2:
+            if len(frame_data) >= HEADER_SIZE * 2:
+                num_tlv = int(self.convert_string("".join(frame_data[48 * 2: 48 * 2 + 4])), 16)
+                total_packet_len = int(self.convert_string("".join(frame_data[20 * 2: 20 * 2 + 8])), 16)
                 print("缓冲区正在接收数据，请稍后...")
                 continue
+
 
             # 每一帧我们都需要先将头部取出
             # 解析TLV头部
@@ -153,7 +156,6 @@ class ReceivePointData:
             point_num = point_cloud_len % SINGLE_POINT_DATA_SIZE
             if point_num != 0:
                 print("point_cloud 缓存区正在接收数据，请稍后...")
-                continue
             if tlv_type == 6:
                 print("point_num: %s", point_num)
             else:
@@ -183,60 +185,60 @@ class ReceivePointData:
 
             # 每一帧后面的TLV，就不需要再计算HEADER了
             # 解析TLV头部
-            index += 8
-            tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
-            index += 8
-            target_list_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
-            target_list_num = target_list_len % SINGLE_TARGET_LIST_SIZE
-            if target_list_num != 0:
-                print("target_list 缓存区正在接收数据，请稍后...")
-                continue
-            print("TLV: %s", tlv_type)
-            print("传递的聚类数：%s", target_list_num)
-            target_list = []
-            for i in range(target_list_num):
-                index += 8
-                tid = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
-                index += 8
-                pos_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                index += 8
-                pos_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                index += 8
-                pos_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                index += 8
-                vel_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                index += 8
-                vel_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                index += 8
-                vel_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                index += 8
-                acc_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                index += 8
-                acc_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                index += 8
-                acc_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                index += 8
-                ec = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 32])))
-                index += 32
-                g = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                target = Target(tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, ec, g, 0)
-                target_list.append(target)
 
-            # 每一帧后面的TLV，就不需要再计算HEADER了
-            # 解析TLV头部
-            index += 8
-            tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
-            index += 8
-            target_index_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
-            target_index_num = target_index_len % SINGLE_TARGET_INDEX_SIZE
-            if target_index_num != 0:
-                print("target_index 缓存区正在接收数据，请稍后...")
-                continue
-            print("TLV: %s", tlv_type)
-            for i in range(target_index_num):
+            if num_tlv == 3:
                 index += 8
-                index_no = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
-                target_list[i].index_no = index_no
+                tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+                index += 8
+                target_list_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+                target_list_num = target_list_len % SINGLE_TARGET_LIST_SIZE
+                if target_list_num != 0:
+                    print("target_list 缓存区正在接收数据，请稍后...")
+                print("TLV: %s", tlv_type)
+                print("传递的聚类数：%s", target_list_num)
+                target_list = []
+                for i in range(target_list_num):
+                    index += 8
+                    tid = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
+                    index += 8
+                    pos_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    pos_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    pos_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    vel_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    vel_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    vel_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    acc_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    acc_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    acc_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    ec = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 32])))
+                    index += 32
+                    g = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    target = Target(tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, ec, g, 0)
+                    target_list.append(target)
+
+                # 每一帧后面的TLV，就不需要再计算HEADER了
+                # 解析TLV头部
+                index += 8
+                tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+                index += 8
+                target_index_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+                target_index_num = target_index_len % SINGLE_TARGET_INDEX_SIZE
+                if target_index_num != 0:
+                    print("target_index 缓存区正在接收数据，请稍后...")
+                print("TLV: %s", tlv_type)
+                for i in range(target_index_num):
+                    index += 8
+                    index_no = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
+                    target_list[i].index_no = index_no
         
         return point_cloud_list
 
