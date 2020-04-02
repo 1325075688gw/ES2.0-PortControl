@@ -6,18 +6,30 @@ import serial
 import math
 import binascii
 import _thread
+import matplotlib.pyplot as plt
+import math
+import datetime
+import json
 
-
+from mpl_toolkits.mplot3d import Axes3D
 from _ctypes import pointer
 from ctypes import c_float, POINTER, c_int, cast
 from collections import OrderedDict
+
+plt.rcParams["font.sans-serif"] = ["KaiTi"]
+plt.rcParams["axes.unicode_minus"] = False
+
 
 HEADER_SIZE = 52
 MAGIC_WORD = "0201040306050807"
 SINGLE_POINT_DATA_SIZE = 20
 SINGLE_TARGET_LIST_SIZE = 40
 SINGLE_TARGET_INDEX_SIZE = 1
-
+# fig = plt.figure()
+# plt.subplots_adjust(wspace=0.75, hspace=0)
+# # 3D view
+# ax = fig.add_subplot(111, projection='3d')
+fig = plt.figure()
 
 class Target:
     def __init__(self, tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, ec, g, index_no):
@@ -104,7 +116,7 @@ class ReceivePointData:
         """
         count = 1
         point_cloud_list_json = OrderedDict()
-        target_json = OrderedDict()
+        target_list_json = OrderedDict()
         while True:
             if self.data_port is not None and self.data_port.isOpen():
                 try:
@@ -117,20 +129,61 @@ class ReceivePointData:
                             valid_data.append((buffer[i]))
                         self.data_buffer.extend(valid_data)
                         # 数据处理
-                        point_cloud_list = self.process_data()
+                        point_cloud_num, point_cloud_list, target_list_num, target_list = self.process_data()
+
                         if point_cloud_list == None:
                             pass
                         else:
-                            point_cloud_list_json.update({count: point_cloud_list})
+                            # print(point_cloud_list)
+                            temp = dict()
+                            temp["point_num"] = point_cloud_num
+                            temp["point_list"] = point_cloud_list
+                            # print(temp)
+                            point_cloud_list_json.update({count: temp})
                             count += 1
-                            print(point_cloud_list)
-                            print(point_cloud_list_json)
+                        hxs, hys, hzs = [], [], []
+                        xs, ys, zs = [5, -5], [0, 10], [5, -5]
+
+                        if target_list != []:
+                            temp = dict()
+                            temp["target_list_num"] = target_list_num
+                            temp["target_list"] = target_list
+                            target_list_json.update({count: temp})
+                            for data in target_list:
+                                hxs.append(data['pos_x'])
+                                hys.append(data['pos_x'])
+                                hzs.append(data['pos_x'])
+
+                        if point_cloud_list != []:
+                            # Set initial two point to fix the border.
+                            for data in point_cloud_list:
+                                xs.append(data['x'])
+                                ys.append(data['y'])
+                                zs.append(data['z'])
+                            if len(xs) > 15:
+                                ax = fig.add_subplot(111, projection='3d')
+                                ax.scatter(xs, ys, zs, marker='o', label="当前检测到{0}人".format(target_list_num))
+                                ax.set_xlabel('X Label' + ' Frame' + str(count))
+                                ax.set_ylabel('Y Label')
+                                ax.set_zlabel('Z Label')
+                                ax.scatter(hxs, hys, hzs, marker="o", s=700, alpha=0.7)
+                                ax.legend()
+                                plt.xlim(-4, 4)
+                                plt.ylim(0,4)
+
+                                plt.title("点云图")
+                                # plt.show()
+                                plt.pause(0.00001)
+                                plt.clf()
+                            pass
 
                 except Exception as e:
                     print(e)
-                # finally:
-                #     with open("PointCloud.json", "w") as file:
-                #         json.dump(point_cloud_json, file)
+                finally:
+                    with open("point_cloud_list.json", "w") as file:
+                        json.dump(point_cloud_list_json, file)
+                    with open("target_list.json", "w") as file:
+                        json.dump(target_list_json, file)
             time.sleep(0.01)
 
     def process_data(self):
@@ -149,36 +202,45 @@ class ReceivePointData:
                 print("缓冲区正在接收数据，请稍后...")
                 continue
             else:
-                num_tlv = int(self.convert_string("".join(frame_data[48 * 2: 48 * 2 + 4])), 16)
-                total_packet_len = int(self.convert_string("".join(frame_data[20 * 2: 20 * 2 + 8])), 16)
+                total_packet_len = int(self.convert_string("".join(frame_data[12 * 2: 12 * 2 + 8])), 16)
+                uart_sent_time = int(self.convert_string("".join(frame_data[40 * 2: 40*2 + 8])), 16)
+                num_tlv = int(self.convert_string("".join(frame_data[44 * 2: 44 * 2 + 4])), 16)
+
             if len(frame_data) < total_packet_len * 2:
                 continue
 
             point_cloud_list = []
+            target_list = []
+            target_list_num = 0
             # 每一帧我们都需要先将头部取出
             # 解析TLV头部
             index = HEADER_SIZE * 2
             tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
             index += 8
             point_cloud_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+            index += 8
             point_cloud_num = int((point_cloud_len - 8) / SINGLE_POINT_DATA_SIZE)
+            print("uart_sent_time {0}".format(uart_sent_time))
             print("tlv_type: {0}, point_num: {1}".format(tlv_type, point_cloud_num))
 
             for i in range(point_cloud_num):
-                index += 8
-                range2 = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                # 高度
+                elev = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 2])))
+                index += 2
 
-                index += 8
-                azimuth = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                # 方位角（水平方位角）
+                azimuth = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 2])))
+                index += 2
 
-                index += 8
-                elev = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                doppler = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 4])))
+                index += 4
 
-                index += 8
-                doppler = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                # 距离
+                range2 = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 4])))
+                index += 4
 
-                index += 8
-                snr = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                snr = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 4])))
+                index += 4
 
                 x = range2 * math.cos(elev) * math.sin(azimuth)
                 y = range2 * math.cos(elev) * math.cos(azimuth)
@@ -189,50 +251,47 @@ class ReceivePointData:
             if num_tlv == 3:
                 # 每一帧后面的TLV，就不需要再计算HEADER了
                 # 解析TLV头部
-                index += 8
                 tlv_type = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
                 index += 8
                 target_list_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+                index += 8
                 target_list_num = int((target_list_len-8) / SINGLE_TARGET_LIST_SIZE)
                 print("tlv_type: {0}, target_list_num: {1}".format(tlv_type, target_list_num))
-                target_list = []
                 for i in range(target_list_num):
-                    index += 8
                     tid = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
                     index += 8
                     pos_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                     index += 8
                     pos_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                     index += 8
-                    pos_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                    index += 8
                     vel_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                     index += 8
                     vel_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                    index += 8
-                    vel_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                     index += 8
                     acc_x = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                     index += 8
                     acc_y = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                     index += 8
+                    pos_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
+                    vel_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
+                    index += 8
                     acc_z = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                    # index += 8
+                    index += 8
                     # ec = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 32])))
                     # index += 32
                     # g = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
-                    target = Target(tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, 0, 0, 0)
+                    target = Target(tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, 0, 0, 0).__dict__
                     target_list.append(target)
 
                 # 每一帧后面的TLV，就不需要再计算HEADER了
                 # 解析TLV头部
-                index += 8
                 tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
                 index += 8
                 target_index_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+                index += 8
                 target_index_num = int((target_index_len-8) / SINGLE_TARGET_INDEX_SIZE)
                 print("tlv_type: {0}, target_index_num: {1}".format(tlv_type, target_index_num))
-                index += 8
                 for i in range(target_index_num):
                     index_no = int(self.convert_string("".join(frame_data[index:index + 2])), 16)
                     index += 2
@@ -241,7 +300,7 @@ class ReceivePointData:
                         continue
                     else:
                         print("该点属于 {0} 聚类".format(index_no))
-            return point_cloud_list
+            return point_cloud_num ,point_cloud_list, target_list_num, target_list
 
 
     def get_frame(self):
@@ -261,10 +320,10 @@ class ReceivePointData:
             return None
         packet_len = int(self.convert_string("".join(self.data_buffer[start_index + 40:start_index + 48])), 16)
         print("数据包大小:" + str(packet_len))
-        # if packet_len > 30000:
-        #     print("数据包大小超过30000，丢弃帧")
-        #     del self.data_buffer[0:24]
-        #     return None
+        if packet_len > 30000:
+            print("数据包大小超过30000，丢弃帧")
+            del self.data_buffer[0:24]
+            return None
         if len(self.data_buffer) < packet_len:
             return None
         ret = copy.deepcopy(self.data_buffer[start_index: start_index + packet_len * 2])
