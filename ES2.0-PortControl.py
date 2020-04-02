@@ -69,13 +69,11 @@ class ReceivePointData:
         :param user_port:
         :return:
         """
-        self.data_port.open()
         if self.data_port.isOpen():
             print("数据串口打开成功！")
         else:
             print("数据串口打开失败！")
 
-        self.user_port.open()
         if self.user_port.isOpen():
             print("用户串口打开成功！")
         else:
@@ -104,9 +102,8 @@ class ReceivePointData:
         接收串口数据
         :return:
         """
-        point_cloud_list = []
-        count = 0
-        point_cloud_json = OrderedDict()
+        count = 1
+        point_cloud_list_json = OrderedDict()
         target_json = OrderedDict()
         while True:
             if self.data_port is not None and self.data_port.isOpen():
@@ -118,18 +115,16 @@ class ReceivePointData:
                         valid_data = []
                         for i in range(len(buffer)):
                             valid_data.append((buffer[i]))
-                        # print(valid_data)
                         self.data_buffer.extend(valid_data)
                         # 数据处理
-                        point_cloud = self.process_data()
-                        if point_cloud ==None:
-                            print("fff")
+                        point_cloud_list = self.process_data()
+                        if point_cloud_list == None:
+                            pass
                         else:
-                            point_cloud_list.extend(point_cloud)
+                            point_cloud_list_json.update({count: point_cloud_list})
                             count += 1
-                            print(point_cloud)
-                            if point_cloud:
-                                point_cloud_json.update({count: point_cloud})
+                            print(point_cloud_list)
+                            print(point_cloud_list_json)
 
                 except Exception as e:
                     print(e)
@@ -144,7 +139,6 @@ class ReceivePointData:
         :return:
         """
 
-        point_cloud_list = []
         while len(self.data_buffer) >= HEADER_SIZE:
             # 从数据缓冲区获取一帧数据
             frame_data = self.get_frame()
@@ -160,23 +154,17 @@ class ReceivePointData:
             if len(frame_data) < total_packet_len * 2:
                 continue
 
+            point_cloud_list = []
             # 每一帧我们都需要先将头部取出
             # 解析TLV头部
             index = HEADER_SIZE * 2
             tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
             index += 8
             point_cloud_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
+            point_cloud_num = int((point_cloud_len - 8) / SINGLE_POINT_DATA_SIZE)
+            print("tlv_type: {0}, point_num: {1}".format(tlv_type, point_cloud_num))
 
-            point_cloud_num_mod = (point_cloud_len-8) % SINGLE_POINT_DATA_SIZE
-            if point_cloud_num_mod != 0:
-                print("point_cloud 缓存区正在接收数据，请稍后...")
-
-            point_cloud_num_ys = int((point_cloud_len - 8) / SINGLE_POINT_DATA_SIZE)
-            if tlv_type == 6:
-                print("point_num: %s" % point_cloud_num_ys)
-            else:
-                print("TLV_type:  %s" % tlv_type)
-            for i in range(point_cloud_num_ys):
+            for i in range(point_cloud_num):
                 index += 8
                 range2 = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
 
@@ -196,25 +184,19 @@ class ReceivePointData:
                 y = range2 * math.cos(elev) * math.cos(azimuth)
                 z = range2 * math.sin(azimuth)
 
-                point = Point(i + 1, x, y, z)
+                point = Point(i + 1, x, y, z).__dict__
                 point_cloud_list.append(point)
             if num_tlv == 3:
-                print("fffffffffff")
                 # 每一帧后面的TLV，就不需要再计算HEADER了
                 # 解析TLV头部
                 index += 8
-                # point_cloud_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
                 tlv_type = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
                 index += 8
                 target_list_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
-                target_list_num_mod = (target_list_len-8) % SINGLE_TARGET_LIST_SIZE
-                if target_list_num_mod != 0:
-                    print("target_list 缓存区正在接收数据，请稍后...")
-                target_list_num_ys = int((target_list_len-8) / SINGLE_TARGET_LIST_SIZE)
-                print("TLV: {0}".format(tlv_type))
-                print("传递的聚类数：{0}".format(target_list_num_ys))
+                target_list_num = int((target_list_len-8) / SINGLE_TARGET_LIST_SIZE)
+                print("tlv_type: {0}, target_list_num: {1}".format(tlv_type, target_list_num))
                 target_list = []
-                for i in range(target_list_num_ys):
+                for i in range(target_list_num):
                     index += 8
                     tid = int(self.convert_string("".join(frame_data[index:index + 8])), 16)
                     index += 8
@@ -241,7 +223,6 @@ class ReceivePointData:
                     # g = self.byte_to_float(self.convert_string("".join(frame_data[index:index + 8])))
                     target = Target(tid, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, acc_x, acc_y, acc_z, 0, 0, 0)
                     target_list.append(target)
-                    print(target_list)
 
                 # 每一帧后面的TLV，就不需要再计算HEADER了
                 # 解析TLV头部
@@ -249,23 +230,18 @@ class ReceivePointData:
                 tlv_type = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
                 index += 8
                 target_index_len = int(self.convert_string("".join(frame_data[index: index + 8])), 16)
-                target_index_num_mod = (target_index_len-8) % SINGLE_TARGET_INDEX_SIZE
-                if target_index_num_mod != 0:
-                    print("target_index 缓存区正在接收数据，请稍后...")
-
-
-                print("TLV_TYPE: {0}".format(tlv_type))
-
-                target_index_num_ys = int((target_index_len-8) / SINGLE_TARGET_INDEX_SIZE)
+                target_index_num = int((target_index_len-8) / SINGLE_TARGET_INDEX_SIZE)
+                print("tlv_type: {0}, target_index_num: {1}".format(tlv_type, target_index_num))
                 index += 8
-                print("target_index_num_ys: {0}".format(target_index_num_ys))
-                for i in range(target_index_num_ys):
+                for i in range(target_index_num):
                     index_no = int(self.convert_string("".join(frame_data[index:index + 2])), 16)
                     index += 2
                     # target_list[i].index_no = index_no
-                    print("索引 {0}".format(index_no))
-
-        return point_cloud_list
+                    if index_no >= 253:
+                        continue
+                    else:
+                        print("该点属于 {0} 聚类".format(index_no))
+            return point_cloud_list
 
 
     def get_frame(self):
